@@ -42,32 +42,54 @@ export interface YuyuTeiCard {
 }
 
 /**
- * Convert an OPTCG-style set code (e.g. "OP-01") to Yuyu-Tei format ("op01").
+ * Convert an OPTCG-style set code (e.g. "OP-01") to one or more Yuyu-Tei
+ * URL fragments. Most sets map 1:1 ("OP-01" → "op01"), but OPTCG occasionally
+ * combines two Yuyu-Tei sets (e.g. "OP14-EB04" → ["op14", "eb04"]).
  */
-export function setCodeToYuyutei(setCode: string): string {
-  return setCode.toLowerCase().replace(/-/g, "");
+export function setCodeToYuyutei(setCode: string): string[] {
+  // Combined OPTCG codes — split on dash if both halves look like a set code
+  const combined = setCode.match(/^([A-Z]+\d+)-([A-Z]+\d+)$/i);
+  if (combined && /\d/.test(combined[1]) && /\d/.test(combined[2])) {
+    return [combined[1].toLowerCase(), combined[2].toLowerCase()];
+  }
+  return [setCode.toLowerCase().replace(/-/g, "")];
 }
 
 /**
  * Fetch + parse a Yuyu-Tei set listing page. Returns one row per card variant
  * (a single card code may yield multiple rows for raw / parallel / etc).
+ *
+ * Some OPTCG codes map to multiple Yuyu-Tei pages (e.g. "OP14-EB04" → op14 + eb04).
+ * In that case we fetch both, dedupe by code+internalId, and merge.
  */
 export async function fetchSetPrices(
   setCode: string,
   game: "opc" = "opc"
 ): Promise<YuyuTeiCard[]> {
-  const ytSet = setCodeToYuyutei(setCode);
-  const url = `${BASE}/sell/${game}/s/${ytSet}`;
+  const fragments = setCodeToYuyutei(setCode);
+  const merged: YuyuTeiCard[] = [];
+  const seen = new Set<string>();
 
-  const res = await fetch(url, {
-    headers: { "User-Agent": USER_AGENT },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    throw new Error(`Yuyu-Tei ${res.status} on ${ytSet}`);
+  for (const ytSet of fragments) {
+    const url = `${BASE}/sell/${game}/s/${ytSet}`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": USER_AGENT },
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      throw new Error(`Yuyu-Tei ${res.status} on ${ytSet}`);
+    }
+    const html = await res.text();
+    const parsed = parseSetHtml(html, game);
+    for (const c of parsed) {
+      const key = `${c.code}:${c.internalId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(c);
+    }
+    if (fragments.length > 1) await sleep(2500);
   }
-  const html = await res.text();
-  return parseSetHtml(html, game);
+  return merged;
 }
 
 export function parseSetHtml(html: string, game: "opc"): YuyuTeiCard[] {
