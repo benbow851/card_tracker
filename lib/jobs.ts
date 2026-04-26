@@ -16,11 +16,13 @@ import {
   searchActive as ebaySearch,
 } from "@/lib/ebay-api";
 import { extractGrade, robustMean, verifyMatch } from "@/lib/matching";
+import { fetchSetPrices, sleep as ytSleep } from "@/lib/yuyutei-api";
 
 const SOURCE_OPTCG = "optcgapi";
 const SOURCE_TCGDEX = "tcgdex";
 const SOURCE_PC = "pricecharting";
 const SOURCE_EBAY = "ebay";
+const SOURCE_YUYUTEI = "yuyutei";
 const TODAY = () => {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
@@ -678,5 +680,172 @@ export async function refreshEbayPrices(batchSize = 20): Promise<JobResult> {
     cursor: newCursor,
     total,
     done,
+  };
+}
+
+/**
+ * Refresh JPY prices from Yuyu-Tei (遊々亭).
+ * Iterates One Piece sets in our DB, scrapes each set's listing page once,
+ * inserts price rows in JPY (no FX conversion at write — UI converts).
+ *
+ * One row per (card, variant) — variant carried in the `grade` column:
+ *   - "raw"     for the canonical (cheapest) entry of each card code
+ *   - "P-SR"/"P-SEC"/etc.  for parallel/alt-art variants
+ *
+ * Throttle: 2.5s between sets — full One Piece catalog (20 sets) in ~1 min.
+ * Yuyu-Tei robots.txt is permissive but we identify ourselves and stay polite.
+ */
+export async function refreshYuyuTeiPrices(): Promise<JobResult> {
+  const jobId = "yuyutei-prices";
+  const start = Date.now();
+  await markRunning(jobId);
+
+  const today = TODAY();
+  let inserted = 0;
+  let errors = 0;
+
+  // Get One Piece sets we currently have in the DB
+  const sets = await prisma.set.findMany({
+    where: { category: "one-piece" },
+    select: { id: true, name: true },
+  });
+
+  for (const set of sets) {
+    try {
+      const rows = await fetchSetPrices(set.id);
+
+      // Group by card code → can have multiple variants per code
+      const byCode = new Map<string, typeof rows>();
+      for (const r of rows) {
+        if (!byCode.has(r.code)) byCode.set(r.code, []);
+        byCode.get(r.code)!.push(r);
+      }
+
+      for (const [code, variants] of Array.from(byCode.entries())) {
+        // Find our DB card by external_id
+        const card = await prisma.card.findUnique({
+          where: { externalId: code },
+          select: { id: true },
+        });
+        if (!card) continue;
+
+        // Insert canonical (cheapest) as 'raw'
+        const priced = variants.filter((v) => v.priceJPY > 0 && !v.outOfStock);
+        if (priced.length === 0) continue;
+        const canonical = priced.reduce((a, b) =>
+          a.priceJPY <= b.priceJPY ? a : b
+        );
+
+        await prisma.price.create({
+          data: {
+            cardId: card.id,
+            source: SOURCE_YUYUTEI,
+            price: canonical.priceJPY,
+            currency: "JPY",
+            grade: "raw",
+            condition: "NM",
+          },
+        });
+        await prisma.priceHistory.upsert({
+          where: {
+            cardId_date_source_grade: {
+              cardId: card.id,
+              date: today,
+              source: SOURCE_YUYUTEI,
+              grade: "raw",
+            },
+          },
+          create: {
+            cardId: card.id,
+            date: today,
+            source: SOURCE_YUYUTEI,
+            grade: "raw",
+            avgPrice: canonical.priceJPY,
+            minPrice: Math.min(...priced.map((v) => v.priceJPY)),
+            maxPrice: Math.max(...priced.map((v) => v.priceJPY)),
+            volume: priced.length,
+          },
+          update: {
+            avgPrice: canonical.priceJPY,
+            minPrice: Math.min(...priced.map((v) => v.priceJPY)),
+            maxPrice: Math.max(...priced.map((v) => v.priceJPY)),
+            volume: priced.length,
+          },
+        });
+        inserted++;
+
+        // Track parallel/alt-art variants separately
+        const alts = priced.filter(
+          (v) => v !== canonical && v.rarityHint?.startsWith("P-")
+        );
+        for (const alt of alts) {
+          const altGrade = alt.rarityHint ?? "alt";
+          await prisma.price.create({
+            data: {
+              cardId: card.id,
+              source: SOURCE_YUYUTEI,
+              price: alt.priceJPY,
+              currency: "JPY",
+              grade: altGrade,
+              condition: "NM",
+            },
+          });
+          await prisma.priceHistory.upsert({
+            where: {
+              cardId_date_source_grade: {
+                cardId: card.id,
+                date: today,
+                source: SOURCE_YUYUTEI,
+                grade: altGrade,
+              },
+            },
+            create: {
+              cardId: card.id,
+              date: today,
+              source: SOURCE_YUYUTEI,
+              grade: altGrade,
+              avgPrice: alt.priceJPY,
+              minPrice: alt.priceJPY,
+              maxPrice: alt.priceJPY,
+              volume: 1,
+            },
+            update: {
+              avgPrice: alt.priceJPY,
+              minPrice: alt.priceJPY,
+              maxPrice: alt.priceJPY,
+            },
+          });
+          inserted++;
+        }
+      }
+
+      console.log(`[yuyutei] ${set.id}: ${byCode.size} unique codes`);
+    } catch (err) {
+      console.error(`[yuyutei] ${set.id} failed:`, err);
+      errors++;
+    }
+
+    // Polite throttle — Yuyu-Tei is small/free
+    await ytSleep(2500);
+  }
+
+  await markFinished(jobId, {
+    total: sets.length,
+    cursor: sets.length,
+    insertedCount: inserted,
+    errorCount: errors,
+    lastStatus: "completed",
+  });
+
+  return {
+    jobId,
+    ok: true,
+    durationMs: Date.now() - start,
+    inserted,
+    updated: 0,
+    errors,
+    cursor: sets.length,
+    total: sets.length,
+    done: true,
   };
 }

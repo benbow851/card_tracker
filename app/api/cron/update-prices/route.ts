@@ -5,6 +5,7 @@ import {
   refreshOptcgPrices,
   refreshPriceChartingPrices,
   refreshTcgdexPrices,
+  refreshYuyuTeiPrices,
 } from "@/lib/jobs";
 
 // Runs on Node runtime (not Edge) since we use Prisma
@@ -56,13 +57,20 @@ export async function GET(request: Request) {
     results.push(await refreshEbayPrices(Math.min(batchSize, 20)));
   }
 
+  if (source === "yuyutei" || source === "all") {
+    results.push(await refreshYuyuTeiPrices());
+  }
+
   // Rotating: pick 1 source per hour based on hour-of-day
   // Lets us fit in Vercel Hobby's 2-cron limit while still hitting every source
   if (source === "rotating") {
     const hour = new Date().getUTCHours();
-    if (hour % 6 === 0) {
+    if (hour % 12 === 0) {
+      // Twice daily: scrape Yuyu-Tei (Japanese reference prices)
+      results.push(await refreshYuyuTeiPrices());
+    } else if (hour % 6 === 0) {
       results.push(await mapCardsToPriceCharting(30));
-    } else if (hour % 3 === 0) {
+    } else if (hour % 4 === 0) {
       results.push(await refreshEbayPrices(15));
     } else if (hour % 2 === 0) {
       results.push(await refreshPriceChartingPrices(50));

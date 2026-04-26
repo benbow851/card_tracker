@@ -5,6 +5,12 @@ import type { GradedPrice } from "@/lib/queries";
 const GRADE_LABEL: Record<string, { label: string; thai: string; tone: string }> =
   {
     raw: { label: "Raw / NM", thai: "ดิบ ไม่ผ่านเกรด", tone: "text-on-surface" },
+    "P-SEC": { label: "Parallel SEC", thai: "พาราเลล SEC", tone: "text-error" },
+    "P-SR": { label: "Parallel SR", thai: "พาราเลล SR", tone: "text-secondary" },
+    "P-L": { label: "Parallel Leader", thai: "พาราเลล Leader", tone: "text-amber-300" },
+    "P-R": { label: "Parallel R", thai: "พาราเลล R", tone: "text-tertiary" },
+    "P-UC": { label: "Parallel UC", thai: "พาราเลล UC", tone: "text-primary" },
+    "P-C": { label: "Parallel C", thai: "พาราเลล C", tone: "text-on-surface" },
     PSA7: { label: "PSA 7", thai: "PSA 7", tone: "text-on-surface-variant" },
     PSA8: { label: "PSA 8", thai: "PSA 8", tone: "text-tertiary" },
     PSA9: { label: "PSA 9", thai: "PSA 9", tone: "text-primary" },
@@ -14,13 +20,19 @@ const GRADE_LABEL: Record<string, { label: string; thai: string; tone: string }>
     CGC10: { label: "CGC 10", thai: "CGC 10", tone: "text-secondary" },
   };
 
-const GRADE_ORDER = ["raw", "PSA7", "PSA8", "PSA9", "PSA9.5", "PSA10", "BGS10", "CGC10"];
+const GRADE_ORDER = [
+  "raw",
+  "P-C", "P-UC", "P-R", "P-SR", "P-L", "P-SEC",
+  "PSA7", "PSA8", "PSA9", "PSA9.5", "PSA10",
+  "BGS10", "CGC10",
+];
 
 const SOURCE_LABEL: Record<string, string> = {
   optcgapi: "TCGPlayer (OPTCG)",
   tcgdex: "Cardmarket (TCGdex)",
   pricecharting: "PriceCharting",
   ebay: "eBay sold",
+  yuyutei: "Yuyu-Tei (遊々亭) JP",
 };
 
 export function GradedPriceTable({ prices }: { prices: GradedPrice[] }) {
