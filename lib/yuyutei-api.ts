@@ -71,17 +71,35 @@ const VARIANT_TAGS: Array<[RegExp, string]> = [
  *   "シャンクス(パラレル)(スーパーパラレル)(刻印なし)"   → "super-parallel-no-stamp"
  *   "シャンクス(マンガ)"                                  → "manga"
  */
-export function extractVariant(nameJP: string | null | undefined): string {
+/**
+ * @param nameJP    Japanese name with parenthetical tags
+ * @param rarityHint Optional Yuyu-Tei rarity letter ("L", "P-L", "SR", "P-SR", etc.)
+ *                   When rarity already encodes "parallel" (starts with "P-"),
+ *                   we drop the redundant `parallel` tag from the variant key.
+ */
+export function extractVariant(
+  nameJP: string | null | undefined,
+  rarityHint?: string | null
+): string {
   if (!nameJP) return "base";
   const found = new Set<string>();
   for (const [re, key] of VARIANT_TAGS) {
     if (re.test(nameJP)) found.add(key);
   }
   if (found.size === 0) return "base";
-  // Drop "parallel" if "super-parallel" present (the latter implies former)
+
+  // Drop "parallel" if "super-parallel" present (latter implies former)
   if (found.has("super-parallel")) found.delete("parallel");
+
+  // Rarity P-X already means "parallel rarity" — extra (パラレル) tag is redundant.
+  // Only meaningful variant tags on a P-X card are super-parallel/manga/alt-art/etc.
+  const isParallelRarity = rarityHint?.startsWith("P-") ?? false;
+  if (isParallelRarity) found.delete("parallel");
+
   // "no-stamp" alone = standard collector print → treat as base
   if (found.size === 1 && found.has("no-stamp")) return "base";
+  if (found.size === 0) return "base";
+
   // Stable canonical order
   const ORDER = [
     "super-parallel",
@@ -199,7 +217,7 @@ export function parseSetHtml(html: string, game: "opc"): YuyuTeiCard[] {
     if (!code) return;
 
     const fullNameJP = nameJP;
-    const variant = extractVariant(nameJP);
+    const variant = extractVariant(nameJP, rarityHint);
     const cleanedName = nameJP ? stripVariantTags(nameJP) : null;
 
     const imageUrl = img.attr("src") ?? null;
