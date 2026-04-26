@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "path": "/api/cron/update-prices?source=optcg",
+      "schedule": "0 20 * * *"
+    },
+    {
+      "path": "/api/cron/update-prices?source=rotating&batch=30",
+      "schedule": "0 * * * *"
+    }
+  ]
+}

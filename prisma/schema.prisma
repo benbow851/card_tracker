@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Card {
+  id            String        @id @default(uuid())
+  name          String
+  cardNumber    String?       @map("card_number")
+  setName       String?       @map("set_name")
+  setCode       String?       @map("set_code")
+  rarity        String?
+  imageUrl      String?       @map("image_url")
+  category      String
+  series        String?
+  language      String?
+  finish        String?
+  year          Int?
+  description   String?
+  externalId    String?       @unique @map("external_id")
+  cardColor     String?       @map("card_color")
+  cardType      String?       @map("card_type")
+  cardCost      String?       @map("card_cost")
+  cardPower     String?       @map("card_power")
+  subTypes      String?       @map("sub_types")
+  attribute     String?
+  counterAmount Int?          @map("counter_amount")
+  life          String?
+  cardText      String?       @map("card_text")
+  pricechartingId           String?   @unique @map("pricecharting_id")
+  pricechartingMatchedAt    DateTime? @map("pricecharting_matched_at")
+  pricechartingMatchConfidence Decimal? @db.Decimal(4, 3) @map("pricecharting_match_confidence")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  prices        Price[]
+  history       PriceHistory[]
+  collections   Collection[]
+
+  @@index([name])
+  @@index([setCode])
+  @@index([category])
+  @@index([cardColor])
+  @@index([cardType])
+  @@map("cards")
+}
+
+model Set {
+  id          String    @id
+  name        String
+  category    String    @default("one-piece")
+  cardCount   Int       @default(0) @map("card_count")
+  releasedAt  DateTime? @db.Date @map("released_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([category])
+  @@map("sets")
+}
+
+model UpdateJob {
+  id             String    @id
+  cursor         Int       @default(0)
+  total          Int       @default(0)
+  lastRunAt      DateTime? @map("last_run_at")
+  lastStatus     String?   @map("last_status")
+  lastError      String?   @map("last_error")
+  updatedCount   Int       @default(0) @map("updated_count")
+  insertedCount  Int       @default(0) @map("inserted_count")
+  errorCount     Int       @default(0) @map("error_count")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@map("update_jobs")
+}
+
+model Price {
+  id          String   @id @default(uuid())
+  cardId      String   @map("card_id")
+  source      String
+  price       Decimal  @db.Decimal(12, 2)
+  currency    String   @default("USD")
+  condition   String?
+  grade       String   @default("raw")  // raw | PSA7 | PSA8 | PSA9 | PSA9.5 | PSA10 | BGS9.5 | BGS10 | CGC10
+  listingUrl  String?  @map("listing_url")
+  recordedAt  DateTime @default(now()) @map("recorded_at")
+
+  card        Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
+  @@index([recordedAt])
+  @@index([grade])
+  @@map("prices")
+}
+
+model PriceHistory {
+  id        String   @id @default(uuid())
+  cardId    String   @map("card_id")
+  date      DateTime @db.Date
+  avgPrice  Decimal  @db.Decimal(12, 2) @map("avg_price")
+  minPrice  Decimal  @db.Decimal(12, 2) @map("min_price")
+  maxPrice  Decimal  @db.Decimal(12, 2) @map("max_price")
+  volume    Int      @default(0)
+  source    String
+  grade     String   @default("raw")
+
+  card      Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([cardId, date, source, grade], map: "price_history_card_id_date_source_grade_key")
+  @@index([cardId, date])
+  @@index([grade])
+  @@map("price_history")
+}
+
+model Collection {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  cardId        String   @map("card_id")
+  quantity      Int      @default(1)
+  purchasePrice Decimal? @db.Decimal(12, 2) @map("purchase_price")
+  purchaseDate  DateTime? @db.Date @map("purchase_date")
+  condition     String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  card          Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("collections")
+}
