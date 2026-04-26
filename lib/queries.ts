@@ -242,9 +242,17 @@ export async function getPrice(cardId: string): Promise<PriceData | null> {
   const change24h = latestTHB - earliestTHB;
   const changePercent24h = earliestTHB > 0 ? (change24h / earliestTHB) * 100 : 0;
 
-  const sourceLabel =
-    currency === "EUR" ? "Cardmarket (via TCGdex)" : "TCGPlayer (via OPTCG API)";
-  const sourceShort = currency === "EUR" ? "CM" : "TCG";
+  const sourceFromDb = card.prices[0]?.source ?? "optcgapi";
+  const SOURCE_DISPLAY: Record<string, { label: string; short: string }> = {
+    optcgapi:      { label: "TCGPlayer (US)",     short: "TCG" },
+    tcgdex:        { label: "Cardmarket (EU)",    short: "CM" },
+    pricecharting: { label: "PriceCharting",      short: "PC" },
+    ebay:          { label: "eBay (US sold)",     short: "eBay" },
+    yuyutei:       { label: "Yuyu-Tei 遊々亭 (JP)", short: "JP" },
+  };
+  const display = SOURCE_DISPLAY[sourceFromDb] ?? { label: sourceFromDb, short: "?" };
+  const sourceLabel = display.label;
+  const sourceShort = display.short;
 
   return {
     cardId,

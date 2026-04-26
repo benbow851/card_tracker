@@ -27,13 +27,34 @@ const GRADE_ORDER = [
   "BGS10", "CGC10",
 ];
 
-const SOURCE_LABEL: Record<string, string> = {
-  optcgapi: "TCGPlayer (OPTCG)",
-  tcgdex: "Cardmarket (TCGdex)",
-  pricecharting: "PriceCharting",
-  ebay: "eBay sold",
-  yuyutei: "Yuyu-Tei (遊々亭) JP",
+const SOURCE_META: Record<string, { label: string; flag: string; region: string; tone: string }> = {
+  optcgapi:      { label: "TCGPlayer",       flag: "🇺🇸", region: "US",  tone: "text-on-surface" },
+  tcgdex:        { label: "Cardmarket",      flag: "🇪🇺", region: "EU",  tone: "text-on-surface" },
+  pricecharting: { label: "PriceCharting",   flag: "🇺🇸", region: "US",  tone: "text-on-surface" },
+  ebay:          { label: "eBay (sold)",     flag: "🇺🇸", region: "US",  tone: "text-on-surface" },
+  yuyutei:       { label: "Yuyu-Tei 遊々亭",  flag: "🇯🇵", region: "JP",  tone: "text-amber-300" },
 };
+
+function sourceMeta(s: string) {
+  return SOURCE_META[s] ?? { label: s, flag: "🌐", region: "", tone: "text-on-surface" };
+}
+
+function currencySymbol(c: string): string {
+  const v = c.toUpperCase();
+  if (v === "JPY") return "¥";
+  if (v === "EUR") return "€";
+  if (v === "THB") return "฿";
+  return "$";
+}
+
+function formatNative(amount: number, currency: string): string {
+  const sym = currencySymbol(currency);
+  const decimals = currency.toUpperCase() === "JPY" ? 0 : 2;
+  return `${sym}${amount.toLocaleString("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })}`;
+}
 
 const VARIANT_LABEL: Record<string, { label: string; thai: string }> = {
   base: { label: "Standard", thai: "มาตรฐาน" },
@@ -118,12 +139,26 @@ export function GradedPriceTable({ prices }: { prices: GradedPrice[] }) {
           const best = tiers.reduce((a, b) =>
             a.priceTHB > b.priceTHB ? a : b
           );
+          // Sort tiers: Yuyu-Tei (JP) first (preferred for Thai market), then by price descending
+          const sortedTiers = [...tiers].sort((a, b) => {
+            if (a.source === "yuyutei" && b.source !== "yuyutei") return -1;
+            if (b.source === "yuyutei" && a.source !== "yuyutei") return 1;
+            return b.priceTHB - a.priceTHB;
+          });
+
+          // Detect outlier (one source 5×+ higher than median)
+          const sortedThb = [...tiers]
+            .map((t) => t.priceTHB)
+            .filter((p) => p > 0)
+            .sort((a, b) => a - b);
+          const median = sortedThb[Math.floor(sortedThb.length / 2)] ?? 0;
+
           return (
             <div
               key={key}
-              className="glass-panel rounded-2xl p-5 space-y-3"
+              className="glass-panel rounded-2xl p-5 space-y-4"
             >
-              <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start justify-between gap-2 pb-3 border-b border-white/5">
                 <div className="flex flex-col">
                   <span
                     className={`font-headline font-bold text-lg ${meta.tone}`}
@@ -145,42 +180,52 @@ export function GradedPriceTable({ prices }: { prices: GradedPrice[] }) {
                   )}
                 </span>
               </div>
-              <div>
-                <div className="flex items-baseline gap-2">
-                  <span className="font-headline font-bold text-2xl text-primary">
-                    {formatPrice(best.priceTHB)}
-                  </span>
-                  {best.priceJPY > 0 && (
-                    <span className="text-amber-300 text-xs">
-                      ≈ {formatPrice(best.priceJPY, "JPY")}
-                    </span>
-                  )}
-                </div>
-                <div className="text-[10px] text-on-surface-variant mt-1">
-                  {SOURCE_LABEL[best.source] ?? best.source} · source ${
-                    best.sourcePrice.toFixed(2)
-                  } {best.sourceCurrency}
-                </div>
-              </div>
-              {tiers.length > 1 && (
-                <details className="text-xs text-on-surface-variant">
-                  <summary className="cursor-pointer hover:text-primary">
-                    +{tiers.length - 1} more source(s)
-                  </summary>
-                  <ul className="mt-2 space-y-1 pl-2">
-                    {tiers
-                      .filter((t) => t.source !== best.source)
-                      .map((t) => (
-                        <li key={t.source} className="flex justify-between">
-                          <span>{SOURCE_LABEL[t.source] ?? t.source}</span>
-                          <span className="font-bold text-on-surface">
-                            {formatPrice(t.priceTHB)}
+
+              {/* Each source as its own row — never hidden */}
+              <div className="space-y-3">
+                {sortedTiers.map((t) => {
+                  const src = sourceMeta(t.source);
+                  const isOutlier =
+                    median > 0 && t.priceTHB > median * 5 && tiers.length > 1;
+                  return (
+                    <div
+                      key={`${t.source}-${t.recordedAt}`}
+                      className="flex items-start justify-between gap-2"
+                    >
+                      <div className="flex flex-col min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-base">{src.flag}</span>
+                          <span className={`text-sm font-bold ${src.tone}`}>
+                            {src.label}
                           </span>
-                        </li>
-                      ))}
-                  </ul>
-                </details>
-              )}
+                          <span className="text-[9px] uppercase tracking-widest text-on-surface-variant">
+                            {src.region}
+                          </span>
+                          {isOutlier && (
+                            <span
+                              className="text-[9px] uppercase tracking-widest text-error font-bold"
+                              title="This price is 5×+ above other sources — may be stale or anomalous"
+                            >
+                              ⚠ outlier
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[10px] text-on-surface-variant mt-0.5">
+                          Native:{" "}
+                          <span className="text-on-surface font-bold">
+                            {formatNative(t.sourcePrice, t.sourceCurrency)}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="font-headline font-bold text-lg text-primary">
+                          {formatPrice(t.priceTHB)}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           );
         })}
