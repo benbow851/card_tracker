@@ -26,7 +26,7 @@ async function main() {
     for (const v of variants) {
       const marker = v === cheap ? " ← canonical" : "";
       console.log(
-        `    [${v.rarityHint}] ¥${v.priceJPY.toLocaleString()} (#${v.internalId}) ${v.nameJP}${marker}`
+        `    [${v.rarityHint}/${v.variant}] ¥${v.priceJPY.toLocaleString()} (#${v.internalId}) ${v.fullNameJP}${marker}`
       );
     }
   }

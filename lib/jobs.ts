@@ -119,11 +119,12 @@ export async function refreshOptcgPrices(): Promise<JobResult> {
           });
           await prisma.priceHistory.upsert({
             where: {
-              cardId_date_source_grade: {
+              cardId_date_source_grade_variant: {
                 cardId: dbCard.id,
                 date: today,
                 source: SOURCE_OPTCG,
                 grade: "raw",
+              variant: "base",
               },
             },
             create: {
@@ -241,11 +242,12 @@ export async function refreshTcgdexPrices(batchSize = 50): Promise<JobResult> {
       });
       await prisma.priceHistory.upsert({
         where: {
-          cardId_date_source_grade: {
+          cardId_date_source_grade_variant: {
             cardId: dbCard.id,
             date: today,
             source: SOURCE_TCGDEX,
             grade: "raw",
+              variant: "base",
           },
         },
         create: {
@@ -472,15 +474,17 @@ export async function refreshPriceChartingPrices(
             price: tier.priceUsd,
             currency: "USD",
             grade: tier.grade,
+              variant: "base",
           },
         });
         await prisma.priceHistory.upsert({
           where: {
-            cardId_date_source_grade: {
+            cardId_date_source_grade_variant: {
               cardId: card.id,
               date: today,
               source: SOURCE_PC,
               grade: tier.grade,
+              variant: "base",
             },
           },
           create: {
@@ -626,11 +630,12 @@ export async function refreshEbayPrices(batchSize = 20): Promise<JobResult> {
         });
         await prisma.priceHistory.upsert({
           where: {
-            cardId_date_source_grade: {
+            cardId_date_source_grade_variant: {
               cardId: card.id,
               date: today,
               source: SOURCE_EBAY,
               grade,
+              variant: "base",
             },
           },
           create: {
@@ -748,11 +753,12 @@ export async function refreshYuyuTeiPrices(): Promise<JobResult> {
         });
         await prisma.priceHistory.upsert({
           where: {
-            cardId_date_source_grade: {
+            cardId_date_source_grade_variant: {
               cardId: card.id,
               date: today,
               source: SOURCE_YUYUTEI,
               grade: "raw",
+              variant: "base",
             },
           },
           create: {
@@ -792,11 +798,12 @@ export async function refreshYuyuTeiPrices(): Promise<JobResult> {
           });
           await prisma.priceHistory.upsert({
             where: {
-              cardId_date_source_grade: {
+              cardId_date_source_grade_variant: {
                 cardId: card.id,
                 date: today,
                 source: SOURCE_YUYUTEI,
                 grade: altGrade,
+              variant: "base",
               },
             },
             create: {

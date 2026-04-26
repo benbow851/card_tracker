@@ -34,6 +34,8 @@ model Card {
   pricechartingId           String?   @unique @map("pricecharting_id")
   pricechartingMatchedAt    DateTime? @map("pricecharting_matched_at")
   pricechartingMatchConfidence Decimal? @db.Decimal(4, 3) @map("pricecharting_match_confidence")
+  characterName             String?   @map("character_name")
+  characterSlug             String?   @map("character_slug")
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
@@ -46,6 +48,7 @@ model Card {
   @@index([category])
   @@index([cardColor])
   @@index([cardType])
+  @@index([characterSlug])
   @@map("cards")
 }
 
@@ -84,6 +87,7 @@ model Price {
   currency    String   @default("USD")
   condition   String?
   grade       String   @default("raw")  // raw | PSA7 | PSA8 | PSA9 | PSA9.5 | PSA10 | BGS9.5 | BGS10 | CGC10
+  variant     String   @default("base") // base | parallel | super-parallel | manga | alt-art | no-stamp | combined-with-dash
   listingUrl  String?  @map("listing_url")
   recordedAt  DateTime @default(now()) @map("recorded_at")
 
@@ -92,6 +96,7 @@ model Price {
   @@index([cardId])
   @@index([recordedAt])
   @@index([grade])
+  @@index([variant])
   @@map("prices")
 }
 
@@ -105,12 +110,14 @@ model PriceHistory {
   volume    Int      @default(0)
   source    String
   grade     String   @default("raw")
+  variant   String   @default("base")
 
   card      Card     @relation(fields: [cardId], references: [id], onDelete: Cascade)
 
-  @@unique([cardId, date, source, grade], map: "price_history_card_id_date_source_grade_key")
+  @@unique([cardId, date, source, grade, variant], map: "price_history_card_id_date_source_grade_variant_key")
   @@index([cardId, date])
   @@index([grade])
+  @@index([variant])
   @@map("price_history")
 }
 

@@ -108,11 +108,12 @@ async function seedSet(setId: string, setName: string) {
         });
         await prisma.priceHistory.upsert({
           where: {
-            cardId_date_source_grade: {
+            cardId_date_source_grade_variant: {
               cardId: card.id,
               date: today,
               source: SOURCE,
               grade: "raw",
+              variant: "base",
             },
           },
           create: {

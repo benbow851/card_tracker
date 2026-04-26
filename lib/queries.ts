@@ -381,6 +381,7 @@ export async function getSetGroupedByRarity(
  */
 export interface GradedPrice {
   grade: string;
+  variant: string;
   source: string;
   priceTHB: number;
   priceJPY: number;
@@ -390,13 +391,13 @@ export interface GradedPrice {
 }
 
 export async function getGradedPrices(cardId: string): Promise<GradedPrice[]> {
-  // Latest price per (grade, source) — use distinct on
-  const rows: { grade: string; source: string; price: { toNumber: () => number }; currency: string; recordedAt: Date }[] = await prisma.$queryRaw`
-    select distinct on (grade, source)
-      grade, source, price, currency, recorded_at as "recordedAt"
+  // Latest price per (grade, variant, source)
+  const rows: { grade: string; variant: string; source: string; price: { toNumber: () => number } | number; currency: string; recordedAt: Date }[] = await prisma.$queryRaw`
+    select distinct on (grade, variant, source)
+      grade, variant, source, price, currency, recorded_at as "recordedAt"
     from public.prices
     where card_id = ${cardId}::uuid
-    order by grade, source, recorded_at desc
+    order by grade, variant, source, recorded_at desc
   `;
 
   if (rows.length === 0) return [];
@@ -408,6 +409,7 @@ export async function getGradedPrices(cardId: string): Promise<GradedPrice[]> {
     const m = convertSync(src, r.currency, rates);
     return {
       grade: r.grade,
+      variant: r.variant,
       source: r.source,
       priceTHB: m.thb,
       priceJPY: m.jpy,
@@ -416,6 +418,130 @@ export async function getGradedPrices(cardId: string): Promise<GradedPrice[]> {
       recordedAt: r.recordedAt.toISOString(),
     };
   });
+}
+
+/**
+ * List all unique characters (One Piece) with stats:
+ *   - card count
+ *   - max card price (THB)
+ *   - thumbnail (image of priciest card)
+ */
+export interface CharacterSummary {
+  slug: string;
+  name: string;
+  cardCount: number;
+  maxPriceTHB: number;
+  thumbnailUrl: string | null;
+}
+
+export async function getAllCharacters(): Promise<CharacterSummary[]> {
+  // Get character + card count + top card per character
+  const rows: {
+    character_slug: string;
+    character_name: string;
+    card_count: bigint;
+    thumbnail: string | null;
+    max_price: number | null;
+    max_currency: string | null;
+  }[] = await prisma.$queryRaw`
+    with ranked as (
+      select
+        c.character_slug,
+        c.character_name,
+        c.image_url,
+        p.price,
+        p.currency,
+        row_number() over (
+          partition by c.character_slug
+          order by p.price desc nulls last
+        ) as rn
+      from public.cards c
+      left join public.prices p on p.card_id = c.id
+      where c.category = 'one-piece' and c.character_slug is not null
+    ),
+    counted as (
+      select character_slug, count(*)::int as cnt
+      from public.cards
+      where category = 'one-piece' and character_slug is not null
+      group by character_slug
+    )
+    select
+      r.character_slug,
+      r.character_name,
+      counted.cnt::bigint as card_count,
+      r.image_url as thumbnail,
+      r.price::float as max_price,
+      r.currency as max_currency
+    from ranked r
+    join counted on counted.character_slug = r.character_slug
+    where r.rn = 1 and counted.cnt >= 3
+    order by counted.cnt desc
+  `;
+
+  const rates = await getRates();
+  const summaries: CharacterSummary[] = rows.map((r) => {
+    const native = Number(r.max_price ?? 0);
+    const cur = r.max_currency ?? "USD";
+    const maxThb = native > 0 ? convertSync(native, cur, rates).thb : 0;
+    return {
+      slug: r.character_slug,
+      name: r.character_name,
+      cardCount: Number(r.card_count),
+      maxPriceTHB: maxThb,
+      thumbnailUrl: r.thumbnail,
+    };
+  });
+  return summaries;
+}
+
+export interface CharacterCardsView {
+  slug: string;
+  name: string;
+  totalCards: number;
+  cardsBySet: Map<string, BrowseCard[]>;
+}
+
+export async function getCharacterCards(
+  slug: string
+): Promise<CharacterCardsView | null> {
+  const rows = await prisma.card.findMany({
+    where: { characterSlug: slug, category: "one-piece" },
+    include: {
+      prices: { orderBy: { recordedAt: "desc" }, take: 1 },
+    },
+    orderBy: [{ setCode: "asc" }, { cardNumber: "asc" }],
+  });
+  if (rows.length === 0) return null;
+
+  const rates = await getRates();
+  const enriched: BrowseCard[] = rows.map((row) => {
+    const src = row.prices[0]?.price?.toNumber() ?? 0;
+    const cur = row.prices[0]?.currency ?? "USD";
+    const m = src > 0
+      ? convertSync(src, cur, rates)
+      : { thb: 0, jpy: 0, sourceCurrency: cur, sourceAmount: 0 };
+    return {
+      ...toCard(row),
+      priceTHB: m.thb,
+      priceJPY: m.jpy,
+      sourcePrice: m.sourceAmount,
+      sourceCurrency: m.sourceCurrency,
+    };
+  });
+
+  // Group by set
+  const cardsBySet = new Map<string, BrowseCard[]>();
+  for (const c of enriched) {
+    if (!cardsBySet.has(c.setCode)) cardsBySet.set(c.setCode, []);
+    cardsBySet.get(c.setCode)!.push(c);
+  }
+
+  return {
+    slug,
+    name: rows[0].characterName ?? slug,
+    totalCards: rows.length,
+    cardsBySet,
+  };
 }
 
 export async function getCategoryStats() {

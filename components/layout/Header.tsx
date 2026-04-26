@@ -3,7 +3,7 @@ import { Icon } from "@/components/ui/Icon";
 
 const NAV = [
   { label: "One Piece", href: "/cards?category=one-piece" },
-  { label: "Naruto", href: "/cards?category=naruto" },
+  { label: "Characters", href: "/characters" },
   { label: "Pokémon", href: "/cards?category=pokemon" },
   { label: "Yu-Gi-Oh!", href: "/cards?category=yu-gi-oh" },
   { label: "Magic", href: "/cards?category=magic" },

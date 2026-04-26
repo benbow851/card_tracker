@@ -29,8 +29,12 @@ export interface YuyuTeiCard {
   code: string;
   /** Rarity hint from alt text, e.g. "L", "P-L", "SR", "P-SR" */
   rarityHint: string | null;
-  /** Japanese name */
+  /** Japanese name (with parenthetical variant tags stripped) */
   nameJP: string | null;
+  /** Raw Japanese name including parens — useful for variant inference */
+  fullNameJP: string | null;
+  /** Print version: 'base' | 'parallel' | 'super-parallel' | 'manga' | 'alt-art' | 'no-stamp' | combined */
+  variant: string;
   /** Price in JPY (yen) */
   priceJPY: number;
   /** Yuyu-Tei internal product id (used for variant disambiguation) */
@@ -39,6 +43,66 @@ export interface YuyuTeiCard {
   imageUrl: string | null;
   /** True if marked out of stock */
   outOfStock: boolean;
+}
+
+/**
+ * Map a Yuyu-Tei Japanese tag → canonical English variant key.
+ */
+const VARIANT_TAGS: Array<[RegExp, string]> = [
+  [/スーパーパラレル/, "super-parallel"],
+  [/パラレル/, "parallel"],
+  [/マンガ/, "manga"],
+  [/イラスト違い/, "alt-art"],
+  [/刻印なし/, "no-stamp"],
+  [/シークレット/, "secret"],
+  [/ボックストッパー/, "box-topper"],
+  [/プロモ/, "promo"],
+  [/ボックス特典/, "box-bonus"],
+];
+
+/**
+ * Extract variant key(s) from a Japanese card name.
+ * Returns canonical variant string. When multiple tags apply we join with `-`,
+ * deduped and sorted in canonical order so equal print versions hash identically.
+ *
+ * Examples:
+ *   "シャンクス"                                          → "base"
+ *   "シャンクス(パラレル)"                                → "parallel"
+ *   "シャンクス(パラレル)(スーパーパラレル)(刻印なし)"   → "super-parallel-no-stamp"
+ *   "シャンクス(マンガ)"                                  → "manga"
+ */
+export function extractVariant(nameJP: string | null | undefined): string {
+  if (!nameJP) return "base";
+  const found = new Set<string>();
+  for (const [re, key] of VARIANT_TAGS) {
+    if (re.test(nameJP)) found.add(key);
+  }
+  if (found.size === 0) return "base";
+  // Drop "parallel" if "super-parallel" present (the latter implies former)
+  if (found.has("super-parallel")) found.delete("parallel");
+  // "no-stamp" alone = standard collector print → treat as base
+  if (found.size === 1 && found.has("no-stamp")) return "base";
+  // Stable canonical order
+  const ORDER = [
+    "super-parallel",
+    "parallel",
+    "manga",
+    "alt-art",
+    "secret",
+    "box-topper",
+    "box-bonus",
+    "promo",
+    "no-stamp",
+  ];
+  return ORDER.filter((k) => found.has(k)).join("-");
+}
+
+/**
+ * Strip parenthetical tags from a Japanese name to get the clean character name.
+ * "シャンクス(パラレル)(スーパーパラレル)" → "シャンクス"
+ */
+export function stripVariantTags(nameJP: string): string {
+  return nameJP.replace(/[\(（][^)）]*[\)）]/g, "").trim();
 }
 
 /**
@@ -134,6 +198,10 @@ export function parseSetHtml(html: string, game: "opc"): YuyuTeiCard[] {
 
     if (!code) return;
 
+    const fullNameJP = nameJP;
+    const variant = extractVariant(nameJP);
+    const cleanedName = nameJP ? stripVariantTags(nameJP) : null;
+
     const imageUrl = img.attr("src") ?? null;
 
     // Price: nearest <strong> with "X 円"
@@ -157,7 +225,9 @@ export function parseSetHtml(html: string, game: "opc"): YuyuTeiCard[] {
     cards.push({
       code,
       rarityHint,
-      nameJP,
+      nameJP: cleanedName,
+      fullNameJP,
+      variant,
       priceJPY,
       internalId,
       imageUrl,

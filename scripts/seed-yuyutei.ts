@@ -28,7 +28,6 @@ async function main() {
   process.stdout.write(`Yuyu-Tei seed: ${sets.length} One Piece sets to scrape\n\n`);
 
   let totalCanonical = 0;
-  let totalAlts = 0;
   let setErrors = 0;
   const day = today();
 
@@ -51,110 +50,67 @@ async function main() {
       byCode.get(r.code)!.push(r);
     }
 
-    let setCanonical = 0;
-    let setAlts = 0;
+    let setRows = 0;
 
-    for (const [code, variants] of Array.from(byCode.entries())) {
+    for (const [code, codeVariants] of Array.from(byCode.entries())) {
       const card = await prisma.card.findUnique({
         where: { externalId: code },
         select: { id: true },
       });
       if (!card) continue;
 
-      const priced = variants.filter((v) => v.priceJPY > 0 && !v.outOfStock);
+      const priced = codeVariants.filter((v) => v.priceJPY > 0 && !v.outOfStock);
       if (priced.length === 0) continue;
-      const canonical = priced.reduce((a, b) =>
-        a.priceJPY <= b.priceJPY ? a : b
-      );
 
-      // Insert canonical (cheapest = "raw NM" baseline) — JPY native
-      await prisma.price.create({
-        data: {
-          cardId: card.id,
-          source: SOURCE,
-          price: canonical.priceJPY,
-          currency: "JPY",
-          grade: "raw",
-          condition: "NM",
-        },
-      });
-      await prisma.priceHistory.upsert({
-        where: {
-          cardId_date_source_grade: {
-            cardId: card.id,
-            date: day,
-            source: SOURCE,
-            grade: "raw",
-          },
-        },
-        create: {
-          cardId: card.id,
-          date: day,
-          source: SOURCE,
-          grade: "raw",
-          avgPrice: canonical.priceJPY,
-          minPrice: Math.min(...priced.map((v) => v.priceJPY)),
-          maxPrice: Math.max(...priced.map((v) => v.priceJPY)),
-          volume: priced.length,
-        },
-        update: {
-          avgPrice: canonical.priceJPY,
-          minPrice: Math.min(...priced.map((v) => v.priceJPY)),
-          maxPrice: Math.max(...priced.map((v) => v.priceJPY)),
-          volume: priced.length,
-        },
-      });
-      setCanonical++;
-
-      // Track each parallel/alt-art variant separately
-      const alts = priced.filter(
-        (v) => v !== canonical && v.rarityHint?.startsWith("P-")
-      );
-      for (const alt of alts) {
-        const altGrade = alt.rarityHint ?? "alt";
+      // Insert ONE row per (rarity, variant) tuple — physical print version
+      for (const v of priced) {
+        const grade = v.rarityHint?.startsWith("P-") ? v.rarityHint : "raw";
+        const variant = v.variant ?? "base";
         await prisma.price.create({
           data: {
             cardId: card.id,
             source: SOURCE,
-            price: alt.priceJPY,
+            price: v.priceJPY,
             currency: "JPY",
-            grade: altGrade,
+            grade,
+            variant,
             condition: "NM",
           },
         });
         await prisma.priceHistory.upsert({
           where: {
-            cardId_date_source_grade: {
+            cardId_date_source_grade_variant: {
               cardId: card.id,
               date: day,
               source: SOURCE,
-              grade: altGrade,
+              grade,
+              variant,
             },
           },
           create: {
             cardId: card.id,
             date: day,
             source: SOURCE,
-            grade: altGrade,
-            avgPrice: alt.priceJPY,
-            minPrice: alt.priceJPY,
-            maxPrice: alt.priceJPY,
+            grade,
+            variant,
+            avgPrice: v.priceJPY,
+            minPrice: v.priceJPY,
+            maxPrice: v.priceJPY,
             volume: 1,
           },
           update: {
-            avgPrice: alt.priceJPY,
-            minPrice: alt.priceJPY,
-            maxPrice: alt.priceJPY,
+            avgPrice: v.priceJPY,
+            minPrice: v.priceJPY,
+            maxPrice: v.priceJPY,
           },
         });
-        setAlts++;
+        setRows++;
       }
     }
 
-    totalCanonical += setCanonical;
-    totalAlts += setAlts;
+    totalCanonical += setRows;
     process.stdout.write(
-      `  ✓ ${setCanonical} canonical + ${setAlts} parallels (${byCode.size} unique codes)\n\n`
+      `  ✓ ${setRows} variant prices (${byCode.size} unique codes)\n\n`
     );
 
     await sleep(2500); // be polite to Yuyu-Tei
@@ -163,7 +119,7 @@ async function main() {
   const dur = ((Date.now() - t0) / 1000).toFixed(1);
   process.stdout.write(
     `\n=========================\n` +
-      `✓ Done in ${dur}s · ${totalCanonical} canonical + ${totalAlts} parallels imported (${setErrors} set errors)\n`
+      `✓ Done in ${dur}s · ${totalCanonical} variant prices imported (${setErrors} set errors)\n`
   );
 }
 
